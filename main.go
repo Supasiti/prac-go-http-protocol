@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"io"
+	"net"
 	"os"
 	"strings"
 )
@@ -14,6 +15,7 @@ func getLinesChannel(f io.ReadCloser) <-chan string {
 		defer func() {
 			f.Close()
 			close(linech)
+			fmt.Println("Connection is closed successfully")
 		}()
 
 		buf := make([]byte, 8)
@@ -23,7 +25,7 @@ func getLinesChannel(f io.ReadCloser) <-chan string {
 			n, err := f.Read(buf)
 			if err != nil {
 				if err != io.EOF {
-					fmt.Print("error reading file")
+					fmt.Println("Error: reading from io")
 				}
 				break outer
 			}
@@ -31,7 +33,7 @@ func getLinesChannel(f io.ReadCloser) <-chan string {
 			read := string(buf[:n])
 			parts := strings.Split(read, "\n")
 			if len(parts) == 0 {
-				fmt.Print("error there should more than 0 parts")
+				fmt.Println("Error: expect more than 0 parts")
 				break outer
 			}
 
@@ -66,14 +68,25 @@ func getLinesChannel(f io.ReadCloser) <-chan string {
 }
 
 func main() {
-	file, err := os.Open("./messages.txt")
+	listener, err := net.Listen("tcp", ":42069")
 	if err != nil {
 		os.Exit(1)
 	}
+	defer listener.Close()
+	fmt.Printf("Listening on address: %s\n", listener.Addr())
 
-	linech := getLinesChannel(file)
+	for {
+		conn, err := listener.Accept()
+		if err != nil {
+			fmt.Printf("%s", err)
+			os.Exit(1)
+		}
+		fmt.Printf("Connection %s has been accepted\n", conn.LocalAddr())
 
-	for line := range linech {
-		fmt.Printf("read: %s\n", line)
+		linech := getLinesChannel(conn)
+
+		for line := range linech {
+			fmt.Println(line)
+		}
 	}
 }
