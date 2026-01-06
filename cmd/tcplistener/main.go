@@ -73,7 +73,7 @@ func main() {
 		os.Exit(1)
 	}
 	defer listener.Close()
-	fmt.Printf("Listening on address: %s\n", listener.Addr())
+	fmt.Printf("Listening on address: %s\n", listener.Addr().String())
 
 	for {
 		conn, err := listener.Accept()
