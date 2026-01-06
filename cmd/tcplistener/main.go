@@ -6,6 +6,8 @@ import (
 	"net"
 	"os"
 	"strings"
+
+	"github.com/Supasiti/prac-go-http-protocol/internal/request"
 )
 
 func getLinesChannel(f io.ReadCloser) <-chan string {
@@ -83,10 +85,15 @@ func main() {
 		}
 		fmt.Printf("Connection %s has been accepted\n", conn.LocalAddr())
 
-		linech := getLinesChannel(conn)
-
-		for line := range linech {
-			fmt.Println(line)
+		req, err := request.RequestFromReader(conn)
+		if err != nil {
+			fmt.Printf("%s", err)
+			os.Exit(1)
 		}
+
+		fmt.Println("Request line:")
+		fmt.Printf("- Method: %s\n", req.RequestLine.Method)
+		fmt.Printf("- Target: %s\n", req.RequestLine.RequestTarget)
+		fmt.Printf("- Version: %s\n", req.RequestLine.HttpVersion)
 	}
 }
