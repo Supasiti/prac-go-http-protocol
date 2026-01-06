@@ -1,13 +1,53 @@
 package request
 
 import (
+	"bytes"
 	"errors"
 	"io"
 	"strings"
 )
 
+type parserState int
+
+const (
+	parserStateInitialised parserState = iota + 1 // Start from 1 instead of 0
+	parserStateDone
+)
+
+const bufferSize = 8
+const CRLF = "\r\n"
+
 type Request struct {
 	RequestLine *RequestLine
+	state       parserState
+}
+
+func newRequest() *Request {
+	return &Request{
+		RequestLine: &RequestLine{},
+		state:       parserStateInitialised,
+	}
+}
+
+func (r *Request) parse(p []byte) (int, error) {
+	switch r.state {
+	case parserStateInitialised:
+		reqLine, n, err := parseRequestLine(p)
+		if err != nil {
+			return 0, err
+		}
+		if n == 0 {
+			return 0, nil
+		}
+
+		r.RequestLine = reqLine
+		r.state = parserStateDone
+		return n, err
+	case parserStateDone:
+		return 0, nil
+	default:
+		return 0, errors.New("Unknown parser state")
+	}
 }
 
 type RequestLine struct {
@@ -17,54 +57,80 @@ type RequestLine struct {
 }
 
 func RequestFromReader(reader io.Reader) (*Request, error) {
-	b, err := io.ReadAll(reader)
-	if err != nil {
-		return nil, err
+	buf := make([]byte, bufferSize, bufferSize)
+	readIdx := 0
+	req := newRequest()
+
+	for req.state != parserStateDone {
+		// check if we need to increase the buffer size
+		if readIdx >= len(buf) {
+			newBuf := make([]byte, len(buf)*2)
+			copy(newBuf, buf)
+			buf = newBuf
+		}
+
+		// read into buf
+		n, err := reader.Read(buf[readIdx:])
+		if err != nil {
+			if errors.Is(err, io.EOF) {
+				req.state = parserStateDone
+				break
+			}
+			return nil, err
+		}
+		readIdx += n
+
+		// parsed the read data
+		parsedN, err := req.parse(buf[:readIdx])
+		if err != nil {
+			return nil, err
+		}
+
+		// shift the back in buffer
+		copy(buf, buf[parsedN:])
+		readIdx -= parsedN
 	}
 
-	lines := strings.Split(string(b), "\r\n")
-	if len(lines) == 0 {
-		return nil, err
-	}
-
-	// the first line is  request line
-	reqLine, err := parseRequestLine(lines[0])
-	if err != nil {
-		return nil, err
-	}
-
-	return &Request{RequestLine: reqLine}, nil
+	return req, nil
 }
 
-func parseRequestLine(raw string) (*RequestLine, error) {
-	parts := strings.Split(raw, " ")
-
-	if len(parts) != 3 {
-		return nil, errors.New("expect request line to have 3 parts separated by space")
+func parseRequestLine(raw []byte) (*RequestLine, int, error) {
+	eol := bytes.Index(raw, []byte(CRLF))
+	if eol < 0 {
+		return nil, 0, nil
 	}
 
-	if err := validateMethod(parts[0]); err != nil {
-		return nil, err
+	parts := strings.Split(string(raw[:eol]), " ")
+	if len(parts) != 3 {
+		return nil, 0, errors.New("expect request line to have 3 parts separated by space")
+	}
+
+	method := parts[0]
+	if err := validateMethod(method); err != nil {
+		return nil, 0, err
 	}
 
 	httpParts := strings.Split(parts[2], "/")
 	if len(httpParts) != 2 {
-		return nil, errors.New("expect http-version to be of format: HTTP-name '/' DIGIT '.' DIGIT")
+		return nil, 0, errors.New("expect http-version to be of format: HTTP-name '/' DIGIT '.' DIGIT")
 	}
 
-	if err := validateHttpVersion(httpParts[1]); err != nil {
-		return nil, err
+	httpVersion := httpParts[1]
+	if err := validateHttpVersion(httpVersion); err != nil {
+		return nil, 0, err
 	}
 
-	return &RequestLine{
-		HttpVersion:   httpParts[1],
-		Method:        parts[0],
+	r := &RequestLine{
+		HttpVersion:   httpVersion,
+		Method:        method,
 		RequestTarget: parts[1],
-	}, nil
+	}
+
+	return r, eol + 2, nil
 }
 
-func validateMethod(raw string) error {
-	for _, r := range raw {
+func validateMethod(method string) error {
+	for _, r := range method {
 		if r < 'A' || r > 'Z' {
 			return errors.New("Request method must use capital alphabets")
 		}
@@ -73,8 +139,8 @@ func validateMethod(raw string) error {
 	return nil
 }
 
-func validateHttpVersion(raw string) error {
-	if raw != "1.1" {
+func validateHttpVersion(version string) error {
+	if version != "1.1" {
 		return errors.New("Invalid HTTP version")
 	}
 	return nil
