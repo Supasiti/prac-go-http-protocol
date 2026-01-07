@@ -2,7 +2,6 @@ package headers
 
 import (
 	"bytes"
-	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -55,7 +54,7 @@ func (h *Headers) Parse(data []byte) (n int, done bool, err error) {
 	// Key
 	key := strings.ToLower(string(clean[:sepPos]))
 	if !validKeyTokens(key) {
-		return 0, false, errors.New("Field name contains invalid character")
+		return 0, false, fmt.Errorf("Field name coltains invalid character: %s", key)
 	}
 
 	// value

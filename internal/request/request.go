@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strconv"
 	"strings"
 
 	"github.com/Supasiti/prac-go-http-protocol/internal/headers"
@@ -15,6 +16,7 @@ type parserState int
 const (
 	parserStateInitialised parserState = iota + 1 // Start from 1 instead of 0
 	parserStateHeaders
+	parserStateBody
 	parserStateDone
 )
 
@@ -30,14 +32,16 @@ type RequestLine struct {
 type Request struct {
 	RequestLine *RequestLine
 	Headers     *headers.Headers
+	Body        []byte
 	state       parserState
 }
 
 func newRequest() *Request {
 	return &Request{
 		RequestLine: &RequestLine{},
-		state:       parserStateInitialised,
 		Headers:     headers.NewHeaders(),
+		Body:        make([]byte, 0),
+		state:       parserStateInitialised,
 	}
 }
 
@@ -77,13 +81,33 @@ func (r *Request) parseLine(p []byte) (int, error) {
 			return 0, err
 		}
 		if done {
-			r.state = parserStateDone // finished with scanning headers
+			r.state = parserStateBody // finished with scanning headers
 		}
 		return n, nil
+	case parserStateBody:
+		contentLengthStr := r.Headers.Get("content-length")
+		if contentLengthStr == "" {
+			r.state = parserStateDone
+			return 0, nil
+		}
+		contentLength, err := strconv.Atoi(contentLengthStr)
+		if err != nil {
+			return 0, fmt.Errorf("malform content-length: %s", err)
+		}
+
+		r.Body = append(r.Body, p...)
+		if contentLength < len(r.Body) {
+			return 0, fmt.Errorf("body length too large")
+		}
+
+		if contentLength == len(r.Body) {
+			r.state = parserStateDone
+		}
+		return len(p), nil
 	case parserStateDone:
 		return 0, nil
 	default:
-		return 0, errors.New("Unknown parser state")
+		return 0, fmt.Errorf("unsupported parser state")
 	}
 }
 
@@ -105,7 +129,7 @@ func RequestFromReader(reader io.Reader) (*Request, error) {
 		if err != nil {
 			if errors.Is(err, io.EOF) {
 				if req.state != parserStateDone {
-					return nil, fmt.Errorf("Incomplete request in state %d", req.state)
+					return nil, fmt.Errorf("incomplete request in state %d", req.state)
 				}
 				break
 			}
@@ -135,7 +159,7 @@ func parseRequestLine(raw []byte) (*RequestLine, int, error) {
 
 	parts := strings.Split(string(raw[:eol]), " ")
 	if len(parts) != 3 {
-		return nil, 0, errors.New("expect request line to have 3 parts separated by space")
+		return nil, 0, fmt.Errorf("expect request line to have 3 parts separated by space")
 	}
 
 	method := parts[0]
@@ -145,7 +169,7 @@ func parseRequestLine(raw []byte) (*RequestLine, int, error) {
 
 	httpParts := strings.Split(parts[2], "/")
 	if len(httpParts) != 2 {
-		return nil, 0, errors.New("expect http-version to be of format: HTTP-name '/' DIGIT '.' DIGIT")
+		return nil, 0, fmt.Errorf("malform http-version: %s", parts[2])
 	}
 
 	httpVersion := httpParts[1]
@@ -165,7 +189,7 @@ func parseRequestLine(raw []byte) (*RequestLine, int, error) {
 func validateMethod(method string) error {
 	for _, r := range method {
 		if r < 'A' || r > 'Z' {
-			return errors.New("Request method must use capital alphabets")
+			return fmt.Errorf("invalid characters in method: %s", method)
 		}
 	}
 
@@ -174,7 +198,7 @@ func validateMethod(method string) error {
 
 func validateHttpVersion(version string) error {
 	if version != "1.1" {
-		return errors.New("Invalid HTTP version")
+		return fmt.Errorf("unsupported HTTP version: %s", version)
 	}
 	return nil
 }
