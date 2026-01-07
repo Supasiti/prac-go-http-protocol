@@ -31,12 +31,20 @@ func TestHeadersParse(t *testing.T) {
 
 	// Test: Valid 2 headers with existing header
 	headers = NewHeaders()
-	data = []byte("Accept: text/html\r\n")
-	_, done, err = headers.Parse(data)
+	headers.Set("Host", "localhost:42069")
+	data = []byte("User-Agent: curl/7.81.0\r\nAccept: */*\r\n\r\n")
+	n, done, err = headers.Parse(data)
 	require.NoError(t, err)
 	require.NotNil(t, headers)
-	assert.Equal(t, "text/html", headers.Get("Accept"))
+	assert.Equal(t, "localhost:42069", headers.Get("Host"))
+	assert.Equal(t, "curl/7.81.0", headers.Get("User-Agent"))
+	assert.Equal(t, "", headers.Get("Accept"))
+	assert.Equal(t, 25, n)
 	assert.False(t, done)
+
+	// Test: Accept multiple values
+	headers = NewHeaders()
+	headers.Set("Accept", "text/html")
 	data = []byte("Accept: application/xhtml+xml\r\n")
 	_, done, err = headers.Parse(data)
 	require.NoError(t, err)
