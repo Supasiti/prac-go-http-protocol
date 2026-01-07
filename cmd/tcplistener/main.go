@@ -95,10 +95,13 @@ func main() {
 		fmt.Printf("- Method: %s\n", req.RequestLine.Method)
 		fmt.Printf("- Target: %s\n", req.RequestLine.RequestTarget)
 		fmt.Printf("- Version: %s\n", req.RequestLine.HttpVersion)
+
 		fmt.Println("Headers:")
-		keys := []string{"host", "user-agent", "accept"}
-		for _, key := range keys {
-			fmt.Printf("- %s: %s\n", key, req.Headers.Get(key))
+		for key, value := range req.Headers.All() {
+			fmt.Printf("- %s: %s\n", key, value)
 		}
+
+		fmt.Println("Body:")
+		fmt.Printf("%s\n", string(req.Body))
 	}
 }

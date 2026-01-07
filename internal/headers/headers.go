@@ -3,6 +3,8 @@ package headers
 import (
 	"bytes"
 	"fmt"
+	"iter"
+	"maps"
 	"slices"
 	"strings"
 )
@@ -36,6 +38,10 @@ func (h *Headers) Get(key string) string {
 
 func (h *Headers) Set(key, value string) {
 	h.data[strings.ToLower(key)] = value
+}
+
+func (h *Headers) All() iter.Seq2[string, string] {
+	return maps.All(h.data)
 }
 
 func (h *Headers) Parse(data []byte) (n int, done bool, err error) {
