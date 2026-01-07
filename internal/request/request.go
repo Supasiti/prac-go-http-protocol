@@ -3,22 +3,33 @@ package request
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"io"
 	"strings"
+
+	"github.com/Supasiti/prac-go-http-protocol/internal/headers"
 )
 
 type parserState int
 
 const (
 	parserStateInitialised parserState = iota + 1 // Start from 1 instead of 0
+	parserStateHeaders
 	parserStateDone
 )
 
 const bufferSize = 8
 const CRLF = "\r\n"
 
+type RequestLine struct {
+	HttpVersion   string
+	RequestTarget string
+	Method        string
+}
+
 type Request struct {
 	RequestLine *RequestLine
+	Headers     *headers.Headers
 	state       parserState
 }
 
@@ -26,10 +37,27 @@ func newRequest() *Request {
 	return &Request{
 		RequestLine: &RequestLine{},
 		state:       parserStateInitialised,
+		Headers:     headers.NewHeaders(),
 	}
 }
 
 func (r *Request) parse(p []byte) (int, error) {
+	parsedN := 0
+	for r.state != parserStateDone {
+		n, err := r.parseLine(p[parsedN:])
+		if err != nil {
+			return 0, err
+		}
+		if n == 0 {
+			break
+		}
+		parsedN += n
+	}
+	return parsedN, nil
+}
+
+func (r *Request) parseLine(p []byte) (int, error) {
+	// parse a single line
 	switch r.state {
 	case parserStateInitialised:
 		reqLine, n, err := parseRequestLine(p)
@@ -41,19 +69,22 @@ func (r *Request) parse(p []byte) (int, error) {
 		}
 
 		r.RequestLine = reqLine
-		r.state = parserStateDone
-		return n, err
+		r.state = parserStateHeaders
+		return n, nil
+	case parserStateHeaders:
+		n, done, err := r.Headers.Parse(p)
+		if err != nil {
+			return 0, err
+		}
+		if done {
+			r.state = parserStateDone // finished with scanning headers
+		}
+		return n, nil
 	case parserStateDone:
 		return 0, nil
 	default:
 		return 0, errors.New("Unknown parser state")
 	}
-}
-
-type RequestLine struct {
-	HttpVersion   string
-	RequestTarget string
-	Method        string
 }
 
 func RequestFromReader(reader io.Reader) (*Request, error) {
@@ -73,7 +104,9 @@ func RequestFromReader(reader io.Reader) (*Request, error) {
 		n, err := reader.Read(buf[readIdx:])
 		if err != nil {
 			if errors.Is(err, io.EOF) {
-				req.state = parserStateDone
+				if req.state != parserStateDone {
+					return nil, fmt.Errorf("Incomplete request in state %d", req.state)
+				}
 				break
 			}
 			return nil, err

@@ -39,17 +39,17 @@ func (h *Headers) Set(key, value string) {
 	h.data[strings.ToLower(key)] = value
 }
 
-func (h *Headers) Parse(data []byte) (int, bool, error) {
-	n := bytes.Index(data, []byte(CRLF))
-	if n < 0 {
+func (h *Headers) Parse(data []byte) (n int, done bool, err error) {
+	eol := bytes.Index(data, []byte(CRLF))
+	if eol < 0 {
 		return 0, false, nil
 	}
-	if n == 0 {
+	if eol == 0 {
 		// starting with \r\n
-		return n + 2, true, nil
+		return eol + 2, true, nil
 	}
 
-	clean := bytes.TrimSpace(data[:n]) // Host: localhost:42069
+	clean := bytes.TrimSpace(data[:eol]) // Host: localhost:42069
 	sepPos := bytes.Index(clean, []byte(keyValueSep))
 
 	// Key
@@ -62,7 +62,7 @@ func (h *Headers) Parse(data []byte) (int, bool, error) {
 	value := string(bytes.TrimSpace(clean[sepPos+1:]))
 
 	h.add(key, value)
-	return n + 2, false, nil
+	return eol + 2, false, nil
 }
 
 var tokenChars = []rune{'!', '#', '$', '%', '&', '\'', '*', '+', '-', '.', '^', '_', '`', '|', '~'}
