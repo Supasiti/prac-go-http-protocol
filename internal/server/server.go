@@ -1,9 +1,7 @@
 package server
 
 import (
-	"bytes"
 	"fmt"
-	"io"
 	"log"
 	"net"
 	"sync/atomic"
@@ -14,21 +12,7 @@ import (
 
 const handlerBufSize = 1024
 
-type Handler func(w io.Writer, req *request.Request) *HandlerError
-
-type HandlerError struct {
-	StatusCode response.StatusCode
-	Message    string
-}
-
-func (h *HandlerError) Write(w io.Writer) {
-	msgByte := []byte(h.Message)
-	headers := response.GetDefaultHeaders(len(msgByte))
-
-	response.WriteStatusLine(w, h.StatusCode)
-	response.WriteHeaders(w, headers)
-	w.Write(msgByte)
-}
+type Handler func(w *response.Writer, req *request.Request)
 
 type Server struct {
 	handler  Handler
@@ -63,34 +47,23 @@ func (s *Server) handle(conn net.Conn) {
 	log.Printf("Connection %s has been accepted\n", conn.LocalAddr())
 	defer conn.Close()
 
+	res := response.NewWriter(conn)
+
 	// Parse the request
 	req, err := request.RequestFromReader(conn)
 	if err != nil {
 		log.Printf("Bad request: %s\n", err)
-		hErr := &HandlerError{
-			StatusCode: response.StatusBadRequest,
-			Message:    err.Error(),
-		}
-		hErr.Write(conn)
+		msg := []byte(err.Error())
+
+		res.WriteStatusLine(response.StatusBadRequest)
+		res.WriteHeaders(response.GetDefaultHeaders(len(msg)))
+		res.WriteBody(msg)
 		return
 	}
 	log.Printf("Received %s request on %s\n", req.RequestLine.Method, req.RequestLine.RequestTarget)
 
 	// Calling handler
-	buf := bytes.NewBuffer([]byte{})
-	if hErr := s.handler(buf, req); hErr != nil {
-		log.Printf("%d error caught in handler: %s\n", hErr.StatusCode, hErr.Message)
-		hErr.Write(conn)
-		return
-	}
-
-	// Writing response
-	log.Printf("Writing response...\n")
-	headers := response.GetDefaultHeaders(buf.Len())
-
-	response.WriteStatusLine(conn, response.StatusOk)
-	response.WriteHeaders(conn, headers)
-	conn.Write(buf.Bytes())
+	s.handler(res, req)
 
 	log.Printf("Successfully wrote response\n")
 }

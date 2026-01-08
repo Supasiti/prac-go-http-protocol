@@ -1,7 +1,6 @@
 package main
 
 import (
-	"io"
 	"log"
 	"os"
 	"os/signal"
@@ -28,25 +27,72 @@ func main() {
 	log.Println("Server gracefully stopped")
 }
 
-func handler(w io.Writer, req *request.Request) *server.HandlerError {
+func handler(w *response.Writer, req *request.Request) {
 	switch req.RequestLine.RequestTarget {
 	case "/yourproblem":
-		return &server.HandlerError{
-			StatusCode: response.StatusBadRequest,
-			Message:    "Your problem is not my problem\n",
-		}
+		handle400(w, req)
+		return
 	case "/myproblem":
-		return &server.HandlerError{
-			StatusCode: response.StatusInternalServerError,
-			Message:    "Woopsie, my bad\n",
-		}
+		handle500(w, req)
+		return
 	default:
-		if _, err := w.Write([]byte("All good, frfr\n")); err != nil {
-			return &server.HandlerError{
-				StatusCode: response.StatusInternalServerError,
-				Message:    "Internal server error\n",
-			}
-		}
-		return nil
+		handle200(w, req)
 	}
+}
+
+func handle200(w *response.Writer, _ *request.Request) {
+	bodyBytes := []byte(`<html>
+  <head>
+    <title>200 OK</title>
+  </head>
+  <body>
+    <h1>Success!</h1>
+    <p>Your request was an absolute banger.</p>
+  </body>
+</html>
+`)
+	headers := response.GetDefaultHeaders(len(bodyBytes))
+	headers.Set("Content-Type", "text/html")
+
+	w.WriteStatusLine(response.StatusOk)
+	w.WriteHeaders(headers)
+	w.WriteBody(bodyBytes)
+}
+
+func handle400(w *response.Writer, _ *request.Request) {
+	bodyBytes := []byte(`<html>
+  <head>
+    <title>400 Bad Request</title>
+  </head>
+  <body>
+    <h1>Bad Request</h1>
+    <p>Your request honestly kinda sucked.</p>
+  </body>
+</html>
+`)
+	headers := response.GetDefaultHeaders(len(bodyBytes))
+	headers.Set("Content-Type", "text/html")
+
+	w.WriteStatusLine(response.StatusBadRequest)
+	w.WriteHeaders(headers)
+	w.WriteBody(bodyBytes)
+}
+
+func handle500(w *response.Writer, req *request.Request) {
+	bodyBytes := []byte(`<html>
+  <head>
+    <title>500 Internal Server Error</title>
+  </head>
+  <body>
+    <h1>Internal Server Error</h1>
+    <p>Okay, you know what? This one is on me.</p>
+  </body>
+</html>
+`)
+	headers := response.GetDefaultHeaders(len(bodyBytes))
+	headers.Set("Content-Type", "text/html")
+
+	w.WriteStatusLine(response.StatusInternalServerError)
+	w.WriteHeaders(headers)
+	w.WriteBody(bodyBytes)
 }

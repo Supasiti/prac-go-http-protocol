@@ -2,7 +2,6 @@ package response
 
 import (
 	"fmt"
-	"io"
 )
 
 type StatusCode int
@@ -25,10 +24,4 @@ func statusLine(statusCode StatusCode) string {
 	}
 
 	return fmt.Sprintf("HTTP/1.1 %d %s\r\n", statusCode, reasonPharse)
-}
-
-func WriteStatusLine(w io.Writer, statusCode StatusCode) error {
-	line := statusLine(statusCode)
-	_, err := w.Write([]byte(line))
-	return err
 }
