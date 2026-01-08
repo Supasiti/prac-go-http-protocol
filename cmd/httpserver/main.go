@@ -51,6 +51,11 @@ func handler(w *response.Writer, req *request.Request) {
 		return
 	}
 
+	if strings.HasPrefix(t, "/video") {
+		handleVideo(w, req)
+		return
+	}
+
 	handle200(w, req)
 }
 
@@ -189,4 +194,20 @@ func handleProxy(w *response.Writer, req *request.Request) {
 	trailer.Set("X-Content-Sha256", fmt.Sprintf("%x", hasher.Sum(nil)))
 	trailer.Set("X-Content-Length", fmt.Sprintf("%d", nTotal))
 	w.WriteTrailers(trailer)
+}
+
+func handleVideo(w *response.Writer, req *request.Request) {
+	h := response.GetDefaultHeaders(0)
+	h.Remove("Content-Length")
+	h.Set("Content-Type", "video/mp4")
+
+	w.WriteStatusLine(response.StatusOk)
+	w.WriteHeaders(h)
+
+	vid, err := os.ReadFile("./assets/vim.mp4")
+	if err != nil {
+		handle500(w, req)
+	}
+
+	w.WriteBody(vid)
 }
