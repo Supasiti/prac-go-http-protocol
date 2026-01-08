@@ -5,6 +5,8 @@ import (
 	"log"
 	"net"
 	"sync/atomic"
+
+	"github.com/Supasiti/prac-go-http-protocol/internal/response"
 )
 
 type Server struct {
@@ -46,7 +48,17 @@ func (s *Server) handle(conn net.Conn) {
 	log.Printf("Connection %s has been accepted\n", conn.LocalAddr())
 	defer conn.Close()
 
-	conn.Write([]byte(defaultResponse))
+	if err := response.WriteStatusLine(conn, response.StatusOk); err != nil {
+		log.Printf("Unable to write response status line: %s\n", err)
+		return
+	}
+
+	headers := response.GetDefaultHeaders(0)
+	if err := response.WriteHeaders(conn, headers); err != nil {
+		log.Printf("Unable to write response headers: %s\n", err)
+		return
+	}
+
 }
 
 func Serve(port int) (*Server, error) {
