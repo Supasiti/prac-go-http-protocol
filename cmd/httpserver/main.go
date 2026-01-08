@@ -1,6 +1,7 @@
 package main
 
 import (
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"io"
@@ -11,6 +12,7 @@ import (
 	"strings"
 	"syscall"
 
+	"github.com/Supasiti/prac-go-http-protocol/internal/headers"
 	"github.com/Supasiti/prac-go-http-protocol/internal/request"
 	"github.com/Supasiti/prac-go-http-protocol/internal/response"
 	"github.com/Supasiti/prac-go-http-protocol/internal/server"
@@ -131,19 +133,24 @@ func handleProxy(w *response.Writer, req *request.Request) {
 	}
 
 	// response
-	headers := response.GetDefaultHeaders(0)
-	headers.Remove("Content-Length")
-	headers.Set("Transfer-Encoding", "chunked")
+	h := response.GetDefaultHeaders(0)
+	h.Remove("Content-Length")
+	h.Set("Transfer-Encoding", "chunked")
+	h.Add("Trailer", "X-Content-Sha256")
+	h.Add("Trailer", "X-Content-Length")
 
 	w.WriteStatusLine(response.StatusOk)
-	w.WriteHeaders(headers)
+	w.WriteHeaders(h)
 
 	const maxChunkSize = 1024
 	buf := make([]byte, maxChunkSize)
+	hasher := sha256.New()
+	nTotal := 0
 
 	// write to response body in chunk
 	for {
 		n, err := resp.Body.Read(buf)
+		nTotal += n
 		log.Printf("Read %d bytes", n)
 		if err != nil {
 			if errors.Is(err, io.EOF) {
@@ -155,9 +162,18 @@ func handleProxy(w *response.Writer, req *request.Request) {
 		}
 
 		// write chunk to body
-		_, err = w.WriteChunkBody(buf[:n])
+		chunk := buf[:n]
+
+		_, err = w.WriteChunkBody(chunk)
 		if err != nil {
 			log.Printf("Error writing chunk body: %s", err)
+			break
+		}
+
+		// update hash
+		_, err = hasher.Write(chunk)
+		if err != nil {
+			log.Printf("Error hashing a chunk: %s", err)
 			break
 		}
 	}
@@ -167,4 +183,10 @@ func handleProxy(w *response.Writer, req *request.Request) {
 	if err != nil {
 		log.Printf("Error writing body done: %s", err)
 	}
+
+	// write trailer
+	trailer := headers.NewHeaders()
+	trailer.Set("X-Content-Sha256", fmt.Sprintf("%x", hasher.Sum(nil)))
+	trailer.Set("X-Content-Length", fmt.Sprintf("%d", nTotal))
+	w.WriteTrailers(trailer)
 }

@@ -13,6 +13,7 @@ const (
 	WriterStateStatusLine WriterState = iota + 1
 	WriterStateHeaders
 	WriterStateBody
+	WriterStateTrailers
 )
 
 type Writer struct {
@@ -86,7 +87,29 @@ func (w *Writer) WriteChunkBodyDone() (int, error) {
 	if w.state != WriterStateBody {
 		return 0, fmt.Errorf("writing response out of order: %d", w.state)
 	}
+	defer func() { w.state = WriterStateTrailers }()
 
-	body := []byte("0\r\n\r\n")
+	body := []byte("0\r\n")
 	return w.writer.Write(body)
+}
+
+func (w *Writer) WriteTrailers(h *headers.Headers) error {
+	if w.state != WriterStateTrailers {
+		return fmt.Errorf("writing response out of order: %d", w.state)
+	}
+
+	if h != nil {
+		for key, value := range h.All() {
+			line := fmt.Sprintf("%s: %s\r\n", key, value)
+
+			fmt.Println(line)
+			_, err := w.writer.Write([]byte(line))
+			if err != nil {
+				return err
+			}
+		}
+	}
+
+	_, err := w.writer.Write([]byte("\r\n"))
+	return err
 }
