@@ -62,3 +62,31 @@ func (w *Writer) WriteBody(p []byte) (int, error) {
 
 	return w.writer.Write(p)
 }
+
+func (w *Writer) WriteChunkBody(p []byte) (int, error) {
+	if w.state != WriterStateBody {
+		return 0, fmt.Errorf("writing response out of order: %d", w.state)
+	}
+
+	nTotal := 0
+	n, err := fmt.Fprintf(w.writer, "%X\r\n", len(p))
+	if err != nil {
+		return nTotal, err
+	}
+	nTotal += n
+
+	body := fmt.Appendf(p, "\r\n")
+	n, err = w.writer.Write(body)
+	nTotal += n
+
+	return nTotal, err
+}
+
+func (w *Writer) WriteChunkBodyDone() (int, error) {
+	if w.state != WriterStateBody {
+		return 0, fmt.Errorf("writing response out of order: %d", w.state)
+	}
+
+	body := []byte("0\r\n\r\n")
+	return w.writer.Write(body)
+}

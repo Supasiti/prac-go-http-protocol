@@ -1,9 +1,14 @@
 package main
 
 import (
+	"errors"
+	"fmt"
+	"io"
 	"log"
+	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 
 	"github.com/Supasiti/prac-go-http-protocol/internal/request"
@@ -28,16 +33,23 @@ func main() {
 }
 
 func handler(w *response.Writer, req *request.Request) {
-	switch req.RequestLine.RequestTarget {
-	case "/yourproblem":
+	t := req.RequestLine.RequestTarget
+	if strings.HasPrefix(t, "/yourproblem") {
 		handle400(w, req)
 		return
-	case "/myproblem":
+	}
+
+	if strings.HasPrefix(t, "/myproblem") {
 		handle500(w, req)
 		return
-	default:
-		handle200(w, req)
 	}
+
+	if strings.HasPrefix(t, "/httpbin/") {
+		handleProxy(w, req)
+		return
+	}
+
+	handle200(w, req)
 }
 
 func handle200(w *response.Writer, _ *request.Request) {
@@ -95,4 +107,64 @@ func handle500(w *response.Writer, req *request.Request) {
 	w.WriteStatusLine(response.StatusInternalServerError)
 	w.WriteHeaders(headers)
 	w.WriteBody(bodyBytes)
+}
+
+func handleProxy(w *response.Writer, req *request.Request) {
+	path := strings.TrimPrefix(req.RequestLine.RequestTarget, "/httpbin/")
+	target := fmt.Sprintf("https://httpbin.org/%s", path)
+
+	log.Printf("Proxy target: %s", target)
+
+	// proxy to https://httpbin.org/x
+	resp, err := http.Get(target)
+	if err != nil {
+		log.Printf("Error making GET request: %s", err)
+		handle500(w, req)
+		return
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		log.Printf("Request failed with status: %s", resp.Status)
+		handle500(w, req)
+		return
+	}
+
+	// response
+	headers := response.GetDefaultHeaders(0)
+	headers.Remove("Content-Length")
+	headers.Set("Transfer-Encoding", "chunked")
+
+	w.WriteStatusLine(response.StatusOk)
+	w.WriteHeaders(headers)
+
+	const maxChunkSize = 1024
+	buf := make([]byte, maxChunkSize)
+
+	// write to response body in chunk
+	for {
+		n, err := resp.Body.Read(buf)
+		log.Printf("Read %d bytes", n)
+		if err != nil {
+			if errors.Is(err, io.EOF) {
+				log.Printf("Reach the end of file")
+			} else {
+				log.Printf("Error reading response from target: %s", err)
+			}
+			break
+		}
+
+		// write chunk to body
+		_, err = w.WriteChunkBody(buf[:n])
+		if err != nil {
+			log.Printf("Error writing chunk body: %s", err)
+			break
+		}
+	}
+
+	// write closing chunk to body
+	_, err = w.WriteChunkBodyDone()
+	if err != nil {
+		log.Printf("Error writing body done: %s", err)
+	}
 }

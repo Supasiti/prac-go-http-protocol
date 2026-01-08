@@ -20,12 +20,16 @@ func NewHeaders() *Headers {
 const CRLF = "\r\n"
 const keyValueSep = ":"
 
-func (h *Headers) add(key, value string) {
+func (h *Headers) Add(key, value string) {
 	if cur := h.Get(key); cur != "" {
 		h.Set(key, fmt.Sprintf("%s, %s", cur, value))
 	} else {
 		h.Set(key, value)
 	}
+}
+
+func (h *Headers) All() iter.Seq2[string, string] {
+	return maps.All(h.data)
 }
 
 func (h *Headers) Get(key string) string {
@@ -36,12 +40,12 @@ func (h *Headers) Get(key string) string {
 	}
 }
 
-func (h *Headers) Set(key, value string) {
-	h.data[strings.ToLower(key)] = value
+func (h *Headers) Remove(key string) {
+	delete(h.data, strings.ToLower(key))
 }
 
-func (h *Headers) All() iter.Seq2[string, string] {
-	return maps.All(h.data)
+func (h *Headers) Set(key, value string) {
+	h.data[strings.ToLower(key)] = value
 }
 
 func (h *Headers) Parse(data []byte) (n int, done bool, err error) {
@@ -66,7 +70,7 @@ func (h *Headers) Parse(data []byte) (n int, done bool, err error) {
 	// value
 	value := string(bytes.TrimSpace(clean[sepPos+1:]))
 
-	h.add(key, value)
+	h.Add(key, value)
 	return eol + 2, false, nil
 }
 
