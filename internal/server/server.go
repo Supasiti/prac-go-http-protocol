@@ -1,15 +1,37 @@
 package server
 
 import (
+	"bytes"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"sync/atomic"
 
+	"github.com/Supasiti/prac-go-http-protocol/internal/request"
 	"github.com/Supasiti/prac-go-http-protocol/internal/response"
 )
 
+const handlerBufSize = 1024
+
+type Handler func(w io.Writer, req *request.Request) *HandlerError
+
+type HandlerError struct {
+	StatusCode response.StatusCode
+	Message    string
+}
+
+func (h *HandlerError) Write(w io.Writer) {
+	msgByte := []byte(h.Message)
+	headers := response.GetDefaultHeaders(len(msgByte))
+
+	response.WriteStatusLine(w, h.StatusCode)
+	response.WriteHeaders(w, headers)
+	w.Write(msgByte)
+}
+
 type Server struct {
+	handler  Handler
 	listener net.Listener
 	closed   atomic.Bool
 }
@@ -37,37 +59,50 @@ func (s *Server) listen() {
 	}
 }
 
-const defaultResponse = `HTTP/1.1 200 OK
-Content-Type: text/plain
-Content-Length: 13
-
-Hello World!
-`
-
 func (s *Server) handle(conn net.Conn) {
 	log.Printf("Connection %s has been accepted\n", conn.LocalAddr())
 	defer conn.Close()
 
-	if err := response.WriteStatusLine(conn, response.StatusOk); err != nil {
-		log.Printf("Unable to write response status line: %s\n", err)
+	// Parse the request
+	req, err := request.RequestFromReader(conn)
+	if err != nil {
+		log.Printf("Bad request: %s\n", err)
+		hErr := &HandlerError{
+			StatusCode: response.StatusBadRequest,
+			Message:    err.Error(),
+		}
+		hErr.Write(conn)
+		return
+	}
+	log.Printf("Received %s request on %s\n", req.RequestLine.Method, req.RequestLine.RequestTarget)
+
+	// Calling handler
+	buf := bytes.NewBuffer([]byte{})
+	if hErr := s.handler(buf, req); hErr != nil {
+		log.Printf("%d error caught in handler: %s\n", hErr.StatusCode, hErr.Message)
+		hErr.Write(conn)
 		return
 	}
 
-	headers := response.GetDefaultHeaders(0)
-	if err := response.WriteHeaders(conn, headers); err != nil {
-		log.Printf("Unable to write response headers: %s\n", err)
-		return
-	}
+	// Writing response
+	log.Printf("Writing response...\n")
+	headers := response.GetDefaultHeaders(buf.Len())
 
+	response.WriteStatusLine(conn, response.StatusOk)
+	response.WriteHeaders(conn, headers)
+	conn.Write(buf.Bytes())
+
+	log.Printf("Successfully wrote response\n")
 }
 
-func Serve(port int) (*Server, error) {
+func Serve(port int, handler Handler) (*Server, error) {
 	listener, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
 	if err != nil {
 		return nil, fmt.Errorf("Fail to create listener: %s", err)
 	}
 
 	server := &Server{
+		handler:  handler,
 		listener: listener,
 	}
 
